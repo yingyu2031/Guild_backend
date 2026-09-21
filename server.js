@@ -8,7 +8,6 @@ const PORT = process.env.PORT || 8080;
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// 允許所有跨域請求
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
@@ -21,13 +20,11 @@ app.use((req, res, next) => {
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// 連接 Zeabur 提供的 PostgreSQL 資料庫
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
-// 初始化核心資料表
 async function initDatabase() {
   const client = await pool.connect();
   try {
@@ -96,39 +93,6 @@ async function initDatabase() {
         create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
-      CREATE TABLE IF NOT EXISTS event_signups (
-        signup_id VARCHAR(255) PRIMARY KEY,
-        event_id VARCHAR(255) NOT NULL,
-        line_user_id VARCHAR(255) NOT NULL,
-        game_nickname VARCHAR(255) NOT NULL,
-        game_class VARCHAR(255),
-        signup_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-
-      CREATE TABLE IF NOT EXISTS bulletins (
-        post_id VARCHAR(255) PRIMARY KEY,
-        category VARCHAR(100) NOT NULL,
-        is_pinned INT DEFAULT 0,
-        title VARCHAR(255) NOT NULL,
-        author VARCHAR(255) NOT NULL,
-        date VARCHAR(50) NOT NULL,
-        image_url TEXT,
-        content TEXT NOT NULL,
-        link_text VARCHAR(255),
-        link_url TEXT,
-        create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-
-      CREATE TABLE IF NOT EXISTS bulletin_reads (
-        id SERIAL PRIMARY KEY,
-        post_id VARCHAR(255) NOT NULL,
-        line_user_id VARCHAR(255) NOT NULL,
-        game_nickname VARCHAR(255) NOT NULL,
-        game_class VARCHAR(255),
-        read_time VARCHAR(50) NOT NULL,
-        UNIQUE(post_id, line_user_id)
-      );
-
       CREATE TABLE IF NOT EXISTS broadcast_schedules (
         broadcast_id VARCHAR(255) PRIMARY KEY,
         item VARCHAR(255) NOT NULL,
@@ -144,7 +108,7 @@ async function initDatabase() {
         config_value TEXT
       );
     `);
-    console.log('[Database] PostgreSQL 資料表與異動歷程機制建置完畢！');
+    console.log('[Database] 資料庫與所有擴充表初始化完畢！');
   } catch (err) {
     console.error('[Database] 建表失敗:', err);
   } finally {
@@ -154,19 +118,10 @@ async function initDatabase() {
 
 initDatabase();
 
-// ==========================================
-// API 路由區段
-// ==========================================
+app.get('/', (req, res) => { res.json({ status: 'success', message: 'GuildMaster 後台服務運作中！' }); });
+app.get('/api/health', (req, res) => { res.json({ status: 'success', message: 'GuildMaster PostgreSQL 後台運行中！' }); });
 
-app.get('/', (req, res) => {
-  res.json({ status: 'success', message: 'GuildMaster 後台服務運作中！' });
-});
-
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'success', message: 'GuildMaster PostgreSQL 後台運行中！' });
-});
-
-// 1. 查詢單一會員身分 API
+// 會員相關 API
 app.get('/api/members/:uid', async (req, res) => {
   const lineUserId = req.params.uid;
   try {
@@ -192,64 +147,33 @@ app.get('/api/members/:uid', async (req, res) => {
   }
 });
 
-// 2. 前台會員綁定 / 更新資料 API (已審核會員修改保持已審核)
 app.post('/api/members/bind', async (req, res) => {
   const { lineUserId, lineDisplayName, gameNickname, gameClass, allowSearch } = req.body;
-  
-  if (!lineUserId || !gameNickname || !gameClass) {
-    return res.status(400).json({ status: "error", message: "缺少必要欄位" });
-  }
-
+  if (!lineUserId || !gameNickname || !gameClass) return res.status(400).json({ status: "error", message: "缺少必要欄位" });
   try {
     const oldRes = await pool.query('SELECT * FROM members WHERE line_user_id = $1', [lineUserId]);
     const oldMember = oldRes.rows[0];
-
     const newAccountStatus = (oldMember && oldMember.account_status === '已審核') ? '已審核' : '待審核';
 
     await pool.query(`
       INSERT INTO members (line_user_id, game_nickname, game_class, line_display_name, allow_search, account_status, update_time)
       VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
       ON CONFLICT (line_user_id) 
-      DO UPDATE SET 
-        game_nickname = EXCLUDED.game_nickname,
-        game_class = EXCLUDED.game_class,
-        line_display_name = EXCLUDED.line_display_name,
-        allow_search = EXCLUDED.allow_search,
-        account_status = $6,
-        update_time = CURRENT_TIMESTAMP
-    `, [
-      lineUserId, 
-      gameNickname, 
-      gameClass, 
-      lineDisplayName, 
-      allowSearch || 'N',
-      newAccountStatus
-    ]);
+      DO UPDATE SET game_nickname = EXCLUDED.game_nickname, game_class = EXCLUDED.game_class, line_display_name = EXCLUDED.line_display_name, allow_search = EXCLUDED.allow_search, account_status = $6, update_time = CURRENT_TIMESTAMP
+    `, [lineUserId, gameNickname, gameClass, lineDisplayName, allowSearch || 'N', newAccountStatus]);
 
     if (!oldMember) {
-      await pool.query(
-        'INSERT INTO member_audit_logs (line_user_id, field, old_value, new_value) VALUES ($1, $2, $3, $4)',
-        [lineUserId, '新會員註冊', '-', `${gameNickname} (${gameClass})`]
-      );
+      await pool.query('INSERT INTO member_audit_logs (line_user_id, field, old_value, new_value) VALUES ($1, $2, $3, $4)', [lineUserId, '新會員註冊', '-', `${gameNickname} (${gameClass})`]);
     } else {
-      if (oldMember.game_nickname !== gameNickname) {
-        await pool.query('INSERT INTO member_audit_logs (line_user_id, field, old_value, new_value) VALUES ($1, $2, $3, $4)', [lineUserId, '遊戲暱稱', oldMember.game_nickname, gameNickname]);
-      }
-      if (oldMember.game_class !== gameClass) {
-        await pool.query('INSERT INTO member_audit_logs (line_user_id, field, old_value, new_value) VALUES ($1, $2, $3, $4)', [lineUserId, '遊戲職業', oldMember.game_class, gameClass]);
-      }
-      if (oldMember.allow_search !== (allowSearch || 'N')) {
-        await pool.query('INSERT INTO member_audit_logs (line_user_id, field, old_value, new_value) VALUES ($1, $2, $3, $4)', [lineUserId, '開放查詢', oldMember.allow_search, allowSearch || 'N']);
-      }
+      if (oldMember.game_nickname !== gameNickname) await pool.query('INSERT INTO member_audit_logs (line_user_id, field, old_value, new_value) VALUES ($1, $2, $3, $4)', [lineUserId, '遊戲暱稱', oldMember.game_nickname, gameNickname]);
+      if (oldMember.game_class !== gameClass) await pool.query('INSERT INTO member_audit_logs (line_user_id, field, old_value, new_value) VALUES ($1, $2, $3, $4)', [lineUserId, '遊戲職業', oldMember.game_class, gameClass]);
     }
-
     res.json({ status: "success", message: "會員資料已成功更新" });
   } catch (err) {
     res.status(500).json({ status: "error", message: err.message });
   }
 });
 
-// 3. 幹部管理：取得所有會員列表
 app.get('/api/admin/members', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM members ORDER BY update_time DESC');
@@ -272,106 +196,42 @@ app.get('/api/admin/members', async (req, res) => {
   }
 });
 
-// 4. 幹部管理：更新會員審核狀態與身分
 app.post('/api/admin/members/status', async (req, res) => {
   const { lineUserId, accountStatus, guildRole } = req.body;
   try {
-    const oldRes = await pool.query('SELECT guild_role, account_status FROM members WHERE line_user_id = $1', [lineUserId]);
-    const oldData = oldRes.rows[0] || {};
-
-    await pool.query(
-      'UPDATE members SET account_status = $1, guild_role = $2, update_time = CURRENT_TIMESTAMP WHERE line_user_id = $3',
-      [accountStatus, guildRole, lineUserId]
-    );
-
-    if (oldData.guild_role !== guildRole) {
-      await pool.query('INSERT INTO member_audit_logs (line_user_id, field, old_value, new_value) VALUES ($1, $2, $3, $4)', [lineUserId, '會員身分', oldData.guild_role, guildRole]);
-    }
-    if (oldData.account_status !== accountStatus) {
-      await pool.query('INSERT INTO member_audit_logs (line_user_id, field, old_value, new_value) VALUES ($1, $2, $3, $4)', [lineUserId, '審核狀態', oldData.account_status, accountStatus]);
-    }
-
+    await pool.query('UPDATE members SET account_status = $1, guild_role = $2, update_time = CURRENT_TIMESTAMP WHERE line_user_id = $3', [accountStatus, guildRole, lineUserId]);
     res.json({ status: "success" });
   } catch (err) {
     res.status(500).json({ status: "error", message: err.message });
   }
 });
 
-// 5. 幹部管理：新增或編輯會員資料
 app.post('/api/admin/members/save', async (req, res) => {
   const { lineUserId, gameNickname, gameClass, lineDisplayName, guildRole, teamGroup, accountStatus, joinedLineGroup, joinedDc } = req.body;
   try {
-    const oldRes = await pool.query('SELECT * FROM members WHERE line_user_id = $1', [lineUserId]);
-    const oldMember = oldRes.rows[0];
-
     await pool.query(`
       INSERT INTO members (line_user_id, game_nickname, game_class, line_display_name, guild_role, team_group, account_status, joined_line_group, joined_dc, update_time)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP)
       ON CONFLICT (line_user_id) 
-      DO UPDATE SET 
-        game_nickname = EXCLUDED.game_nickname,
-        game_class = EXCLUDED.game_class,
-        line_display_name = EXCLUDED.line_display_name,
-        guild_role = EXCLUDED.guild_role,
-        team_group = EXCLUDED.team_group,
-        account_status = EXCLUDED.account_status,
-        joined_line_group = EXCLUDED.joined_line_group,
-        joined_dc = EXCLUDED.joined_dc,
-        update_time = CURRENT_TIMESTAMP
-    `, [
-      lineUserId, 
-      gameNickname, 
-      gameClass, 
-      lineDisplayName, 
-      guildRole, 
-      teamGroup, 
-      accountStatus, 
-      joinedLineGroup || 'N', 
-      joinedDc || 'N'
-    ]);
-
-    if (oldMember) {
-      if (oldMember.game_nickname !== gameNickname) {
-        await pool.query('INSERT INTO member_audit_logs (line_user_id, field, old_value, new_value) VALUES ($1, $2, $3, $4)', [lineUserId, '遊戲暱稱', oldMember.game_nickname, gameNickname]);
-      }
-      if (oldMember.game_class !== gameClass) {
-        await pool.query('INSERT INTO member_audit_logs (line_user_id, field, old_value, new_value) VALUES ($1, $2, $3, $4)', [lineUserId, '遊戲職業', oldMember.game_class, gameClass]);
-      }
-      if (oldMember.guild_role !== guildRole) {
-        await pool.query('INSERT INTO member_audit_logs (line_user_id, field, old_value, new_value) VALUES ($1, $2, $3, $4)', [lineUserId, '會員身分', oldMember.guild_role, guildRole]);
-      }
-    }
-
+      DO UPDATE SET game_nickname = EXCLUDED.game_nickname, game_class = EXCLUDED.game_class, line_display_name = EXCLUDED.line_display_name, guild_role = EXCLUDED.guild_role, team_group = EXCLUDED.team_group, account_status = EXCLUDED.account_status, joined_line_group = EXCLUDED.joined_line_group, joined_dc = EXCLUDED.joined_dc, update_time = CURRENT_TIMESTAMP
+    `, [lineUserId, gameNickname, gameClass, lineDisplayName, guildRole, teamGroup, accountStatus, joinedLineGroup || 'N', joinedDc || 'N']);
     res.json({ status: "success" });
   } catch (err) {
     res.status(500).json({ status: "error", message: err.message });
   }
 });
 
-// 5-1. 幹部管理：取得指定會員的異動歷程
 app.get('/api/admin/members/logs/:uid', async (req, res) => {
   const lineUserId = req.params.uid;
   try {
-    const result = await pool.query(
-      `SELECT field, old_value, TO_CHAR(update_time, 'YYYY-MM-DD HH24:MI:SS') AS update_time, new_value 
-       FROM member_audit_logs 
-       WHERE line_user_id = $1 
-       ORDER BY update_time DESC`,
-      [lineUserId]
-    );
-    const logs = result.rows.map(l => ({
-      field: l.field,
-      oldValue: l.old_value,
-      newValue: l.new_value,
-      updateTime: l.update_time
-    }));
+    const result = await pool.query("SELECT field, old_value, TO_CHAR(update_time, 'YYYY-MM-DD HH24:MI:SS') AS update_time, new_value FROM member_audit_logs WHERE line_user_id = $1 ORDER BY update_time DESC", [lineUserId]);
+    const logs = result.rows.map(l => ({ field: l.field, oldValue: l.old_value, newValue: l.new_value, updateTime: l.update_time }));
     res.json({ status: "success", logs });
   } catch (err) {
     res.status(500).json({ status: "error", message: err.message });
   }
 });
 
-// 5-2. 幹部管理：刪除會員
 app.delete('/api/admin/members/:uid', async (req, res) => {
   const lineUserId = req.params.uid;
   try {
@@ -383,7 +243,28 @@ app.delete('/api/admin/members/:uid', async (req, res) => {
   }
 });
 
-// 6. 幹部管理：取得活動列表
+// 請假紀錄 API
+app.get('/api/admin/leaves', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM leaves ORDER BY submit_time DESC');
+    const leaves = result.rows.map(l => ({
+      id: l.leave_id,
+      date: l.leave_date,
+      event: l.leave_event,
+      gameNickname: l.game_nickname,
+      gameClass: l.game_class,
+      reason: l.leave_reason,
+      isUrgent: l.is_urgent === 'Y',
+      operator: l.operator_name || '本人',
+      submitTime: l.submit_time
+    }));
+    res.json({ status: "success", leaves });
+  } catch (err) {
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
+// 活動列表 API
 app.get('/api/admin/events', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM events ORDER BY date DESC');
@@ -406,22 +287,46 @@ app.get('/api/admin/events', async (req, res) => {
   }
 });
 
-// 7. 幹部管理：取得請假紀錄
-app.get('/api/admin/leaves', async (req, res) => {
+// 其他設定：系統參數 (群組 ID、職業選單) API
+app.get('/api/admin/configs', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM leaves ORDER BY submit_time DESC');
-    const leaves = result.rows.map(l => ({
-      id: l.leave_id,
-      date: l.leave_date,
-      event: l.leave_event,
-      gameNickname: l.game_nickname,
-      gameClass: l.game_class,
-      reason: l.leave_reason,
-      isUrgent: l.is_urgent === 'Y',
-      operator: l.operator_name || '本人',
-      submitTime: l.submit_time
-    }));
-    res.json({ status: "success", leaves });
+    const result = await pool.query('SELECT * FROM system_configs');
+    const configs = {};
+    result.rows.forEach(r => { configs[r.config_key] = r.config_value; });
+    res.json({ status: "success", configs });
+  } catch (err) {
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
+app.post('/api/admin/configs', async (req, res) => {
+  const { configKey, configValue } = req.body;
+  try {
+    await pool.query(`
+      INSERT INTO system_configs (config_key, config_value) VALUES ($1, $2)
+      ON CONFLICT (config_key) DO UPDATE SET config_value = EXCLUDED.config_value
+    `, [configKey, configValue]);
+    res.json({ status: "success" });
+  } catch (err) {
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
+// 請假項目規則 API
+app.get('/api/admin/leave-rules', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM leave_rules');
+    res.json({ status: "success", rules: result.rows });
+  } catch (err) {
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
+// 推播排程 API
+app.get('/api/admin/broadcasts', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM broadcast_schedules');
+    res.json({ status: "success", broadcasts: result.rows });
   } catch (err) {
     res.status(500).json({ status: "error", message: err.message });
   }
