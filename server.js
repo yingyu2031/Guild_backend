@@ -8,7 +8,18 @@ const PORT = process.env.PORT || 8080;
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// 【關鍵修正】確保能夠正確讀取 public 資料夾底下的前端 HTML 與靜態檔案
+// 【關鍵修正】允許所有跨域請求（解決前端 fetch 失敗問題）
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
+// 確保能夠正確讀取 public 資料夾底下的前端 HTML 與靜態檔案
 app.use(express.static(path.join(__dirname, 'public')));
 
 // 連接 Zeabur 提供的 PostgreSQL 資料庫 (環境變數會自動帶入)
@@ -146,7 +157,7 @@ initDatabase();
 // 頁面與 API 路由區段
 // ==========================================
 
-// 0. 根目錄自動載入您的前端首頁 (假設您的 HTML 放在 public 內或作為主頁)
+// 0. 根目錄自動載入您的前端首頁
 app.get('/', (req, res) => {
   res.json({ status: 'success', message: 'GuildMaster 後台服務運作中，請透過 LIFF 頁面存取！' });
 });
