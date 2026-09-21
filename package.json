@@ -1,5 +1,5 @@
 {
-  "name": "guild-backend",
+  "name": "Guild-backend",
   "version": "1.0.0",
   "description": "GuildMaster PostgreSQL Server",
   "main": "server.js",
