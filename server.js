@@ -141,11 +141,73 @@ async function initDatabase() {
 
 initDatabase();
 
-// 測試用 API
+// ==========================================
+// API 路由區段
+// ==========================================
+
+// 1. 健康檢查 API
 app.get('/api/health', (req, res) => {
   res.json({ status: 'success', message: 'GuildMaster PostgreSQL 後台運行中！' });
 });
 
+// 2. 查詢會員身分 API (前台 LIFF 呼叫)
+app.get('/api/members/:uid', async (req, res) => {
+  const lineUserId = req.params.uid;
+  try {
+    const result = await pool.query(
+      'SELECT * FROM members WHERE line_user_id = $1',
+      [lineUserId]
+    );
+
+    if (result.rows.length > 0) {
+      const member = result.rows[0];
+      res.json({
+        status: "found",
+        gameNickname: member.game_nickname,
+        gameClass: member.game_class,
+        lineDisplayName: member.line_display_name,
+        allowSearch: member.allow_search,
+        accountStatus: member.account_status
+      });
+    } else {
+      res.json({ status: "not_found" });
+    }
+  } catch (err) {
+    console.error('[API] 查詢會員失敗:', err);
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
+// 3. 會員綁定 / 更新資料 API (前台 LIFF 送出)
+app.post('/api/members/bind', async (req, res) => {
+  const { lineUserId, lineDisplayName, gameNickname, gameClass, allowSearch } = req.body;
+  
+  if (!lineUserId || !gameNickname || !gameClass) {
+    return res.status(400).json({ status: "error", message: "缺少必要欄位" });
+  }
+
+  try {
+    await pool.query(`
+      INSERT INTO members (line_user_id, game_nickname, game_class, line_display_name, allow_search, account_status, update_time)
+      VALUES ($1, $2, $3, $4, $5, '待審核', CURRENT_TIMESTAMP)
+      ON CONFLICT (line_user_id) 
+      DO UPDATE SET 
+        game_nickname = EXCLUDED.game_nickname,
+        game_class = EXCLUDED.game_class,
+        line_display_name = EXCLUDED.line_display_name,
+        allow_search = EXCLUDED.allow_search,
+        update_time = CURRENT_TIMESTAMP
+    `, [lineUserId, gameNickname, gameClass, lineDisplayName, allowSearch]);
+
+    console.log(`[API] 會員資料已成功儲存/更新: ${gameNickname} (${lineUserId})`);
+    res.json({ status: "success", message: "會員資料已成功送出審核" });
+  } catch (err) {
+    console.error('[API] 儲存會員資料失敗:', err);
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
+// 啟動伺服器
 app.listen(PORT, () => {
   console.log(`[Server] 伺服器已在連接埠 ${PORT} 上運行`);
 });
