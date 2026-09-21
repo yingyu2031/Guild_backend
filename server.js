@@ -321,6 +321,22 @@ app.get('/api/admin/leave-rules', async (req, res) => {
     res.status(500).json({ status: "error", message: err.message });
   }
 });
+// 儲存請假項目規則 API
+app.post('/api/admin/leave-rules/save', async (req, res) => {
+  const { event, latestTime, cycle, enabled } = req.body;
+  try {
+    await pool.query(`
+      INSERT INTO leave_rules (event, latest_time, cycle, enabled)
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (event) 
+      DO UPDATE SET latest_time = EXCLUDED.latest_time, cycle = EXCLUDED.cycle, enabled = EXCLUDED.enabled
+    `, [event, latestTime, cycle, enabled]);
+    res.json({ status: "success" });
+  } catch (err) {
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
 
 // 推播排程 API
 app.get('/api/admin/broadcasts', async (req, res) => {
