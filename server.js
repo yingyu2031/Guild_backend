@@ -8,6 +8,7 @@ const PORT = process.env.PORT || 8080;
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// 【關鍵修正】確保能夠正確讀取 public 資料夾底下的前端 HTML 與靜態檔案
 app.use(express.static(path.join(__dirname, 'public')));
 
 // 連接 Zeabur 提供的 PostgreSQL 資料庫 (環境變數會自動帶入)
@@ -142,8 +143,13 @@ async function initDatabase() {
 initDatabase();
 
 // ==========================================
-// API 路由區段
+// 頁面與 API 路由區段
 // ==========================================
+
+// 0. 根目錄自動載入您的前端首頁 (假設您的 HTML 放在 public 內或作為主頁)
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
 // 1. 健康檢查 API
 app.get('/api/health', (req, res) => {
