@@ -1,13 +1,13 @@
 {
   "name": "guild-backend",
   "version": "1.0.0",
-  "description": "GuildMaster Node.js and SQLite Server",
+  "description": "GuildMaster PostgreSQL Server",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
     "express": "^4.18.2",
-    "sqlite3": "^5.1.7"
+    "pg": "^8.11.3"
   }
 }
