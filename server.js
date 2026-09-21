@@ -148,7 +148,7 @@ initDatabase();
 
 // 0. 根目錄自動載入您的前端首頁 (假設您的 HTML 放在 public 內或作為主頁)
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.json({ status: 'success', message: 'GuildMaster 後台服務運作中，請透過 LIFF 頁面存取！' });
 });
 
 // 1. 健康檢查 API
