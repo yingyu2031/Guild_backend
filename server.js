@@ -192,7 +192,7 @@ app.get('/api/members/:uid', async (req, res) => {
   }
 });
 
-// 2. 前台會員綁定 / 更新資料 API (包含異動歷程寫入)
+// 2. 前台會員綁定 / 更新資料 API (已審核會員修改保持已審核)
 app.post('/api/members/bind', async (req, res) => {
   const { lineUserId, lineDisplayName, gameNickname, gameClass, allowSearch } = req.body;
   
@@ -201,30 +201,31 @@ app.post('/api/members/bind', async (req, res) => {
   }
 
   try {
-    // 取得修改前的舊資料以進行比對
     const oldRes = await pool.query('SELECT * FROM members WHERE line_user_id = $1', [lineUserId]);
     const oldMember = oldRes.rows[0];
 
+    const newAccountStatus = (oldMember && oldMember.account_status === '已審核') ? '已審核' : '待審核';
+
     await pool.query(`
       INSERT INTO members (line_user_id, game_nickname, game_class, line_display_name, allow_search, account_status, update_time)
-      VALUES ($1, $2, $3, $4, $5, '待審核', CURRENT_TIMESTAMP)
+      VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
       ON CONFLICT (line_user_id) 
       DO UPDATE SET 
         game_nickname = EXCLUDED.game_nickname,
         game_class = EXCLUDED.game_class,
         line_display_name = EXCLUDED.line_display_name,
         allow_search = EXCLUDED.allow_search,
-        account_status = '待審核',
+        account_status = $6,
         update_time = CURRENT_TIMESTAMP
     `, [
       lineUserId, 
       gameNickname, 
       gameClass, 
       lineDisplayName, 
-      allowSearch || 'N'
+      allowSearch || 'N',
+      newAccountStatus
     ]);
 
-    // 記錄異動歷程至 member_audit_logs
     if (!oldMember) {
       await pool.query(
         'INSERT INTO member_audit_logs (line_user_id, field, old_value, new_value) VALUES ($1, $2, $3, $4)',
@@ -242,7 +243,7 @@ app.post('/api/members/bind', async (req, res) => {
       }
     }
 
-    res.json({ status: "success", message: "會員資料已成功送出審核" });
+    res.json({ status: "success", message: "會員資料已成功更新" });
   } catch (err) {
     res.status(500).json({ status: "error", message: err.message });
   }
