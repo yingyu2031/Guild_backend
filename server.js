@@ -27,7 +27,7 @@ const pool = new Pool({
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
-// 初始化核心資料表
+// 初始化核心資料表 (字串 Y/N 預設為 N)
 async function initDatabase() {
   const client = await pool.connect();
   try {
@@ -37,9 +37,9 @@ async function initDatabase() {
         game_nickname VARCHAR(255) NOT NULL,
         game_class VARCHAR(255) NOT NULL,
         line_display_name VARCHAR(255),
-        allow_search BOOLEAN DEFAULT FALSE,
-        joined_line_group BOOLEAN DEFAULT FALSE,
-        joined_dc BOOLEAN DEFAULT FALSE,
+        allow_search VARCHAR(10) DEFAULT 'N',
+        joined_line_group VARCHAR(10) DEFAULT 'N',
+        joined_dc VARCHAR(10) DEFAULT 'N',
         account_status VARCHAR(50) DEFAULT '待審核',
         guild_role VARCHAR(50) DEFAULT '現任',
         team_group VARCHAR(255) DEFAULT '',
@@ -144,7 +144,7 @@ async function initDatabase() {
         config_value TEXT
       );
     `);
-    console.log('[Database] PostgreSQL 資料表與布林欄位建置完畢！');
+    console.log('[Database] PostgreSQL 資料表與字串欄位建置完畢！');
   } catch (err) {
     console.error('[Database] 建表失敗:', err);
   } finally {
@@ -166,7 +166,7 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'success', message: 'GuildMaster PostgreSQL 後台運行中！' });
 });
 
-// 1. 查詢單一會員身分 API (回傳布林值)
+// 1. 查詢單一會員身分 API (回傳 Y/N 字串)
 app.get('/api/members/:uid', async (req, res) => {
   const lineUserId = req.params.uid;
   try {
@@ -178,9 +178,9 @@ app.get('/api/members/:uid', async (req, res) => {
         gameNickname: member.game_nickname,
         gameClass: member.game_class,
         lineDisplayName: member.line_display_name,
-        allowSearch: member.allow_search === true,
-        joinedLineGroup: member.joined_line_group === true,
-        joinedDc: member.joined_dc === true,
+        allowSearch: member.allow_search || 'N',
+        joinedLineGroup: member.joined_line_group || 'N',
+        joinedDc: member.joined_dc || 'N',
         guildRole: member.guild_role,
         accountStatus: member.account_status
       });
@@ -213,7 +213,15 @@ app.post('/api/members/bind', async (req, res) => {
         joined_line_group = EXCLUDED.joined_line_group,
         joined_dc = EXCLUDED.joined_dc,
         update_time = CURRENT_TIMESTAMP
-    `, [lineUserId, gameNickname, gameClass, lineDisplayName, !!allowSearch, !!joinedLineGroup, !!joinedDc]);
+    `, [
+      lineUserId, 
+      gameNickname, 
+      gameClass, 
+      lineDisplayName, 
+      allowSearch || 'N', 
+      joinedLineGroup || 'N', 
+      joinedDc || 'N'
+    ]);
 
     res.json({ status: "success", message: "會員資料已成功送出審核" });
   } catch (err) {
@@ -230,9 +238,9 @@ app.get('/api/admin/members', async (req, res) => {
       gameNickname: m.game_nickname,
       gameClass: m.game_class,
       lineDisplayName: m.line_display_name,
-      allowSearch: m.allow_search === true,
-      joinedLineGroup: m.joined_line_group === true,
-      joinedDc: m.joined_dc === true,
+      allowSearch: m.allow_search || 'N',
+      joinedLineGroup: m.joined_line_group || 'N',
+      joinedDc: m.joined_dc || 'N',
       accountStatus: m.account_status,
       guildRole: m.guild_role,
       teamGroup: m.team_group,
@@ -277,7 +285,18 @@ app.post('/api/admin/members/save', async (req, res) => {
         joined_line_group = EXCLUDED.joined_line_group,
         joined_dc = EXCLUDED.joined_dc,
         update_time = CURRENT_TIMESTAMP
-    `, [lineUserId, gameNickname, gameClass, lineDisplayName, guildRole, teamGroup, accountStatus, !!allowSearch, !!joinedLineGroup, !!joinedDc]);
+    `, [
+      lineUserId, 
+      gameNickname, 
+      gameClass, 
+      lineDisplayName, 
+      guildRole, 
+      teamGroup, 
+      accountStatus, 
+      allowSearch || 'N', 
+      joinedLineGroup || 'N', 
+      joinedDc || 'N'
+    ]);
     res.json({ status: "success" });
   } catch (err) {
     res.status(500).json({ status: "error", message: err.message });
