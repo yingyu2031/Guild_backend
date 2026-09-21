@@ -8,7 +8,7 @@ const PORT = process.env.PORT || 8080;
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// 【關鍵修正】允許所有跨域請求（解決前端 fetch 失敗問題）
+// 允許所有跨域請求
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
@@ -19,16 +19,15 @@ app.use((req, res, next) => {
   next();
 });
 
-// 確保能夠正確讀取 public 資料夾底下的前端 HTML 與靜態檔案
 app.use(express.static(path.join(__dirname, 'public')));
 
-// 連接 Zeabur 提供的 PostgreSQL 資料庫 (環境變數會自動帶入)
+// 連接 Zeabur 提供的 PostgreSQL 資料庫
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
-// 初始化 11 大核心資料表 (PostgreSQL 語法)
+// 初始化核心資料表 (包含 joined_line_group 與 joined_dc)
 async function initDatabase() {
   const client = await pool.connect();
   try {
@@ -39,6 +38,8 @@ async function initDatabase() {
         game_class VARCHAR(255) NOT NULL,
         line_display_name VARCHAR(255),
         allow_search VARCHAR(10) DEFAULT 'Y',
+        joined_line_group VARCHAR(10) DEFAULT 'N',
+        joined_dc VARCHAR(10) DEFAULT 'N',
         account_status VARCHAR(50) DEFAULT '待審核',
         guild_role VARCHAR(50) DEFAULT '現任',
         team_group VARCHAR(255) DEFAULT '',
@@ -143,7 +144,7 @@ async function initDatabase() {
         config_value TEXT
       );
     `);
-    console.log('[Database] PostgreSQL 11 大核心資料表建置完畢！');
+    console.log('[Database] PostgreSQL 資料表與新欄位建置完畢！');
   } catch (err) {
     console.error('[Database] 建表失敗:', err);
   } finally {
@@ -154,28 +155,22 @@ async function initDatabase() {
 initDatabase();
 
 // ==========================================
-// 頁面與 API 路由區段
+// API 路由區段
 // ==========================================
 
-// 0. 根目錄自動載入您的前端首頁
 app.get('/', (req, res) => {
-  res.json({ status: 'success', message: 'GuildMaster 後台服務運作中，請透過 LIFF 頁面存取！' });
+  res.json({ status: 'success', message: 'GuildMaster 後台服務運作中！' });
 });
 
-// 1. 健康檢查 API
 app.get('/api/health', (req, res) => {
   res.json({ status: 'success', message: 'GuildMaster PostgreSQL 後台運行中！' });
 });
 
-// 2. 查詢會員身分 API (前台 LIFF 呼叫)
+// 1. 查詢單一會員身分 API
 app.get('/api/members/:uid', async (req, res) => {
   const lineUserId = req.params.uid;
   try {
-    const result = await pool.query(
-      'SELECT * FROM members WHERE line_user_id = $1',
-      [lineUserId]
-    );
-
+    const result = await pool.query('SELECT * FROM members WHERE line_user_id = $1', [lineUserId]);
     if (result.rows.length > 0) {
       const member = result.rows[0];
       res.json({
@@ -184,20 +179,22 @@ app.get('/api/members/:uid', async (req, res) => {
         gameClass: member.game_class,
         lineDisplayName: member.line_display_name,
         allowSearch: member.allow_search,
+        joinedLineGroup: member.joined_line_group,
+        joinedDc: member.joined_dc,
+        guildRole: member.guild_role,
         accountStatus: member.account_status
       });
     } else {
       res.json({ status: "not_found" });
     }
   } catch (err) {
-    console.error('[API] 查詢會員失敗:', err);
     res.status(500).json({ status: "error", message: err.message });
   }
 });
 
-// 3. 會員綁定 / 更新資料 API (前台 LIFF 送出)
+// 2. 前台會員綁定 / 更新資料 API
 app.post('/api/members/bind', async (req, res) => {
-  const { lineUserId, lineDisplayName, gameNickname, gameClass, allowSearch } = req.body;
+  const { lineUserId, lineDisplayName, gameNickname, gameClass, allowSearch, joinedLineGroup, joinedDc } = req.body;
   
   if (!lineUserId || !gameNickname || !gameClass) {
     return res.status(400).json({ status: "error", message: "缺少必要欄位" });
@@ -205,21 +202,128 @@ app.post('/api/members/bind', async (req, res) => {
 
   try {
     await pool.query(`
-      INSERT INTO members (line_user_id, game_nickname, game_class, line_display_name, allow_search, account_status, update_time)
-      VALUES ($1, $2, $3, $4, $5, '待審核', CURRENT_TIMESTAMP)
+      INSERT INTO members (line_user_id, game_nickname, game_class, line_display_name, allow_search, joined_line_group, joined_dc, account_status, update_time)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, '待審核', CURRENT_TIMESTAMP)
       ON CONFLICT (line_user_id) 
       DO UPDATE SET 
         game_nickname = EXCLUDED.game_nickname,
         game_class = EXCLUDED.game_class,
         line_display_name = EXCLUDED.line_display_name,
         allow_search = EXCLUDED.allow_search,
+        joined_line_group = EXCLUDED.joined_line_group,
+        joined_dc = EXCLUDED.joined_dc,
         update_time = CURRENT_TIMESTAMP
-    `, [lineUserId, gameNickname, gameClass, lineDisplayName, allowSearch]);
+    `, [lineUserId, gameNickname, gameClass, lineDisplayName, allowSearch || 'Y', joinedLineGroup || 'N', joinedDc || 'N']);
 
-    console.log(`[API] 會員資料已成功儲存/更新: ${gameNickname} (${lineUserId})`);
     res.json({ status: "success", message: "會員資料已成功送出審核" });
   } catch (err) {
-    console.error('[API] 儲存會員資料失敗:', err);
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
+// 3. 幹部管理：取得所有會員列表
+app.get('/api/admin/members', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM members ORDER BY update_time DESC');
+    const members = result.rows.map(m => ({
+      lineUserId: m.line_user_id,
+      gameNickname: m.game_nickname,
+      gameClass: m.game_class,
+      lineDisplayName: m.line_display_name,
+      allowSearch: m.allow_search,
+      joinedLineGroup: m.joined_line_group,
+      joinedDc: m.joined_dc,
+      accountStatus: m.account_status,
+      guildRole: m.guild_role,
+      teamGroup: m.team_group,
+      updateTime: m.update_time
+    }));
+    res.json({ status: "success", members });
+  } catch (err) {
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
+// 4. 幹部管理：更新會員審核狀態與身分
+app.post('/api/admin/members/status', async (req, res) => {
+  const { lineUserId, accountStatus, guildRole } = req.body;
+  try {
+    await pool.query(
+      'UPDATE members SET account_status = $1, guild_role = $2, update_time = CURRENT_TIMESTAMP WHERE line_user_id = $3',
+      [accountStatus, guildRole, lineUserId]
+    );
+    res.json({ status: "success" });
+  } catch (err) {
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
+// 5. 幹部管理：新增或編輯會員資料 (包含群組加入狀態)
+app.post('/api/admin/members/save', async (req, res) => {
+  const { lineUserId, gameNickname, gameClass, lineDisplayName, guildRole, teamGroup, accountStatus, allowSearch, joinedLineGroup, joinedDc } = req.body;
+  try {
+    await pool.query(`
+      INSERT INTO members (line_user_id, game_nickname, game_class, line_display_name, guild_role, team_group, account_status, allow_search, joined_line_group, joined_dc, update_time)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_TIMESTAMP)
+      ON CONFLICT (line_user_id) 
+      DO UPDATE SET 
+        game_nickname = EXCLUDED.game_nickname,
+        game_class = EXCLUDED.game_class,
+        line_display_name = EXCLUDED.line_display_name,
+        guild_role = EXCLUDED.guild_role,
+        team_group = EXCLUDED.team_group,
+        account_status = EXCLUDED.account_status,
+        allow_search = EXCLUDED.allow_search,
+        joined_line_group = EXCLUDED.joined_line_group,
+        joined_dc = EXCLUDED.joined_dc,
+        update_time = CURRENT_TIMESTAMP
+    `, [lineUserId, gameNickname, gameClass, lineDisplayName, guildRole, teamGroup, accountStatus, allowSearch, joinedLineGroup, joinedDc]);
+    res.json({ status: "success" });
+  } catch (err) {
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
+// 6. 幹部管理：取得活動列表
+app.get('/api/admin/events', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM events ORDER BY date DESC');
+    const events = result.rows.map(e => ({
+      id: e.event_id,
+      title: e.title,
+      date: e.date,
+      time: e.time,
+      signupStart: e.signup_start,
+      signupEnd: e.signup_end,
+      maxLimit: e.max_limit,
+      status: e.status,
+      isArchived: e.is_archived === 1,
+      desc: e.description,
+      attendees: []
+    }));
+    res.json({ status: "success", events });
+  } catch (err) {
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
+// 7. 幹部管理：取得請假紀錄
+app.get('/api/admin/leaves', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM leaves ORDER BY submit_time DESC');
+    const leaves = result.rows.map(l => ({
+      id: l.leave_id,
+      date: l.leave_date,
+      event: l.leave_event,
+      gameNickname: l.game_nickname,
+      gameClass: l.game_class,
+      reason: l.leave_reason,
+      isUrgent: l.is_urgent === 'Y',
+      operator: l.operator_name || '本人',
+      submitTime: l.submit_time
+    }));
+    res.json({ status: "success", leaves });
+  } catch (err) {
     res.status(500).json({ status: "error", message: err.message });
   }
 });
