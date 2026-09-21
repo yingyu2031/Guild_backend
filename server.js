@@ -262,7 +262,38 @@ app.get('/api/admin/leaves', async (req, res) => {
   } catch (err) {
     res.status(500).json({ status: "error", message: err.message });
   }
+})
+
+// 儲存或更新請假項目規則 API
+app.post('/api/admin/leave-rules/save', async (req, res) => {
+  const { originalEvent, event, latestTime, cycle, enabled } = req.body;
+  try {
+    if (originalEvent && originalEvent !== event) {
+      await pool.query('DELETE FROM leave_rules WHERE event = $1', [originalEvent]);
+    }
+    await pool.query(`
+      INSERT INTO leave_rules (event, latest_time, cycle, enabled)
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (event) 
+      DO UPDATE SET latest_time = EXCLUDED.latest_time, cycle = EXCLUDED.cycle, enabled = EXCLUDED.enabled
+    `, [event, latestTime, cycle, enabled]);
+    res.json({ status: "success" });
+  } catch (err) {
+    res.status(500).json({ status: "error", message: err.message });
+  }
 });
+
+// 刪除請假項目規則 API
+app.delete('/api/admin/leave-rules/:event', async (req, res) => {
+  const eventName = req.params.event;
+  try {
+    await pool.query('DELETE FROM leave_rules WHERE event = $1', [eventName]);
+    res.json({ status: "success" });
+  } catch (err) {
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
 
 // 活動列表 API
 app.get('/api/admin/events', async (req, res) => {
