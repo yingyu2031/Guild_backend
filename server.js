@@ -457,7 +457,7 @@ app.post('/api/admin/classes/update', async (req, res) => {
     const checkExist = await client.query('SELECT * FROM game_classes WHERE class_name = $1', [newClassName.trim()]);
     if (checkExist.rows.length > 0) {
       await client.query('ROLLBACK');
-      return.status(400).json({ status: "error", message: "此職業名稱已存在" });
+    return res.status(400).json({ status: "error", message: "此職業名稱已存在" });
     }
 
     // 1. 更新職業表中的名稱（若有使用舊名稱，先刪除舊的再插入新的，或直接 UPDATE 主鍵）
