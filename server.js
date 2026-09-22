@@ -243,7 +243,45 @@ app.delete('/api/admin/members/:uid', async (req, res) => {
   }
 });
 
-// 請假紀錄 API
+// ==========================================
+// 請假系統 API (新增 POST /api/leaves)
+// ==========================================
+app.post('/api/leaves', async (req, res) => {
+  const { leaveDate, leaveEvent, targetUid, gameNickname, gameClass, leaveReason, note, operatorUid, operatorName } = req.body;
+  
+  if (!leaveDate || !leaveEvent || !targetUid || !gameNickname || !leaveReason) {
+    return res.status(400).json({ status: "error", message: "缺少必要的請假欄位" });
+  }
+
+  try {
+    // 產生唯一請假 ID (例如: LV_1711234567890_abc)
+    const leaveId = 'LV_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+    
+    // 若有填寫備註 (note)，可將其附加在請假原因後方或保留
+    const finalReason = note ? `${leaveReason} (備註: ${note})` : leaveReason;
+
+    await pool.query(`
+      INSERT INTO leaves (leave_id, leave_date, leave_event, target_uid, game_nickname, game_class, leave_reason, operator_uid, operator_name, submit_time)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP)
+    `, [
+      leaveId, 
+      leaveDate, 
+      leaveEvent, 
+      targetUid, 
+      gameNickname, 
+      gameClass || '', 
+      finalReason, 
+      operatorUid || targetUid, 
+      operatorName || '本人'
+    ]);
+
+    res.json({ status: "success", message: "請假申請已成功送出並記錄", leaveId });
+  } catch (err) {
+    console.error('[Database] 請假寫入失敗:', err);
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
 app.get('/api/admin/leaves', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM leaves ORDER BY submit_time DESC');
@@ -262,7 +300,7 @@ app.get('/api/admin/leaves', async (req, res) => {
   } catch (err) {
     res.status(500).json({ status: "error", message: err.message });
   }
-})
+});
 
 // 儲存或更新請假項目規則 API
 app.post('/api/admin/leave-rules/save', async (req, res) => {
@@ -293,7 +331,6 @@ app.delete('/api/admin/leave-rules/:event', async (req, res) => {
     res.status(500).json({ status: "error", message: err.message });
   }
 });
-
 
 // 活動列表 API
 app.get('/api/admin/events', async (req, res) => {
@@ -352,22 +389,6 @@ app.get('/api/admin/leave-rules', async (req, res) => {
     res.status(500).json({ status: "error", message: err.message });
   }
 });
-// 儲存請假項目規則 API
-app.post('/api/admin/leave-rules/save', async (req, res) => {
-  const { event, latestTime, cycle, enabled } = req.body;
-  try {
-    await pool.query(`
-      INSERT INTO leave_rules (event, latest_time, cycle, enabled)
-      VALUES ($1, $2, $3, $4)
-      ON CONFLICT (event) 
-      DO UPDATE SET latest_time = EXCLUDED.latest_time, cycle = EXCLUDED.cycle, enabled = EXCLUDED.enabled
-    `, [event, latestTime, cycle, enabled]);
-    res.json({ status: "success" });
-  } catch (err) {
-    res.status(500).json({ status: "error", message: err.message });
-  }
-});
-
 
 // 推播排程 API
 app.get('/api/admin/broadcasts', async (req, res) => {
