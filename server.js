@@ -25,6 +25,9 @@ const pool = new Pool({
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
+// ==========================================
+// 初始化資料庫與預設職業表
+// ==========================================
 async function initDatabase() {
   const client = await pool.connect();
   try {
@@ -114,45 +117,37 @@ async function initDatabase() {
         create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
-    console.log('[Database] 資料庫與所有擴充表（含職業表）初始化完畢！');
+
+    // 自動初始化預設職業進 game_classes (若表內無資料)
+    const classCheck = await client.query('SELECT COUNT(*) FROM game_classes');
+    if (parseInt(classCheck.rows[0].count) === 0) {
+      const defaultClasses = [
+        "超魔導士", "學者（智者）", "神射手", "搞笑藝人（詩人）", 
+        "冷豔舞姬（舞孃）", "騎士領主", "聖殿十字軍", "十字刺客", 
+        "神行（神偷）", "神官（大主教）", "武術宗師", "神工匠", "創造者（鍊金術士）"
+      ];
+      for (let i = 0; i < defaultClasses.length; i++) {
+        await client.query(
+          'INSERT INTO game_classes (class_name, sort_order) VALUES ($1, $2) ON CONFLICT (class_name) DO NOTHING',
+          [defaultClasses[i], i]
+        );
+      }
+      console.log('[Database] 預設職業已成功寫入 game_classes！');
+    }
+
+    console.log('[Database] 資料庫與所有擴充表初始化完畢！');
   } catch (err) {
     console.error('[Database] 建表失敗:', err);
   } finally {
     client.release();
   }
 }
+
 initDatabase();
 
-// 初始化預設職業到 system_configs
-async function initDefaultClasses() {
-  const client = await pool.connect();
-  try {
-    const checkRes = await client.query("SELECT * FROM system_configs WHERE config_key = 'game_classes'");
-    if (checkRes.rows.length === 0) {
-      const defaultClasses = [
-        "超魔導士", "學者（智者）", "神射手", "搞笑藝人（詩人）", 
-        "冷豔舞姬（舞孃）", "騎士領主", "聖殿十字軍", "十字刺客", 
-        "神行（神偷）", "神官（大主教）", "武術宗師", "神工匠", "創造者（鍊金術士）"
-      ];
-      await client.query(
-        "INSERT INTO system_configs (config_key, config_value) VALUES ('game_classes', $1)",
-        [JSON.stringify(defaultClasses)]
-      );
-      console.log('[Database] 預設職業清單已初始化完成！');
-    }
-  } catch (err) {
-    console.error('[Database] 初始化預設職業失敗:', err);
-  } finally {
-    client.release();
-  }
-}
-
-// 請在 initDatabase() 執行後呼叫它
-initDatabase().then(() => {
-  initDefaultClasses();
-});
-
-// 新增：修改職業名稱並連動更新會員表的 API
+// ==========================================
+// 職業名稱修改並連動更新會員表 API
+// ==========================================
 app.post('/api/admin/classes/rename', async (req, res) => {
   const { oldName, newName } = req.body;
   if (!oldName || !newName) {
@@ -163,20 +158,13 @@ app.post('/api/admin/classes/rename', async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // 1. 從 system_configs 讀取目前的職業陣列
-    const configRes = await client.query("SELECT config_value FROM system_configs WHERE config_key = 'game_classes'");
-    if (configRes.rows.length > 0) {
-      let classes = JSON.parse(configRes.rows[0].config_value || '[]');
-      classes = classes.map(c => c === oldName ? newName : c);
-      
-      // 2. 寫回更新後的職業陣列
-      await client.query(
-        "UPDATE system_configs SET config_value = $1 WHERE config_key = 'game_classes'",
-        [JSON.stringify(classes)]
-      );
-    }
+    // 1. 更新 game_classes 表中的職業名稱
+    await client.query(
+      "UPDATE game_classes SET class_name = $1 WHERE class_name = $2",
+      [newName, oldName]
+    );
 
-    // 3. 連帶更新所有屬於這個舊職業的會員資料
+    // 2. 連帶更新所有屬於這個舊職業的會員資料
     await client.query(
       "UPDATE members SET game_class = $1 WHERE game_class = $2",
       [newName, oldName]
