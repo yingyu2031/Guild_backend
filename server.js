@@ -123,6 +123,76 @@ async function initDatabase() {
 }
 initDatabase();
 
+// 初始化預設職業到 system_configs
+async function initDefaultClasses() {
+  const client = await pool.connect();
+  try {
+    const checkRes = await client.query("SELECT * FROM system_configs WHERE config_key = 'game_classes'");
+    if (checkRes.rows.length === 0) {
+      const defaultClasses = [
+        "超魔導士", "學者（智者）", "神射手", "搞笑藝人（詩人）", 
+        "冷豔舞姬（舞孃）", "騎士領主", "聖殿十字軍", "十字刺客", 
+        "神行（神偷）", "神官（大主教）", "武術宗師", "神工匠", "創造者（鍊金術士）"
+      ];
+      await client.query(
+        "INSERT INTO system_configs (config_key, config_value) VALUES ('game_classes', $1)",
+        [JSON.stringify(defaultClasses)]
+      );
+      console.log('[Database] 預設職業清單已初始化完成！');
+    }
+  } catch (err) {
+    console.error('[Database] 初始化預設職業失敗:', err);
+  } finally {
+    client.release();
+  }
+}
+
+// 請在 initDatabase() 執行後呼叫它
+initDatabase().then(() => {
+  initDefaultClasses();
+});
+
+// 新增：修改職業名稱並連動更新會員表的 API
+app.post('/api/admin/classes/rename', async (req, res) => {
+  const { oldName, newName } = req.body;
+  if (!oldName || !newName) {
+    return res.status(400).json({ status: "error", message: "缺少必要欄位" });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1. 從 system_configs 讀取目前的職業陣列
+    const configRes = await client.query("SELECT config_value FROM system_configs WHERE config_key = 'game_classes'");
+    if (configRes.rows.length > 0) {
+      let classes = JSON.parse(configRes.rows[0].config_value || '[]');
+      classes = classes.map(c => c === oldName ? newName : c);
+      
+      // 2. 寫回更新後的職業陣列
+      await client.query(
+        "UPDATE system_configs SET config_value = $1 WHERE config_key = 'game_classes'",
+        [JSON.stringify(classes)]
+      );
+    }
+
+    // 3. 連帶更新所有屬於這個舊職業的會員資料
+    await client.query(
+      "UPDATE members SET game_class = $1 WHERE game_class = $2",
+      [newName, oldName]
+    );
+
+    await client.query('COMMIT');
+    res.json({ status: "success", message: "職業名稱已同步更新，相關會員資料已連動" });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[Database] 更新職業名稱失敗:', err);
+    res.status(500).json({ status: "error", message: err.message });
+  } finally {
+    client.release();
+  }
+});
+
 app.get('/', (req, res) => { res.json({ status: 'success', message: 'GuildMaster 後台服務運作中！' }); });
 app.get('/api/health', (req, res) => { res.json({ status: 'success', message: 'GuildMaster PostgreSQL 後台運行中！' }); });
 
