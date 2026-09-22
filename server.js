@@ -35,7 +35,7 @@ async function initDatabase() {
       CREATE TABLE IF NOT EXISTS members (
         line_user_id VARCHAR(255) PRIMARY KEY,
         game_nickname VARCHAR(255) NOT NULL,
-        game_class VARCHAR(255) NOT NULL,
+        game_class VARCHAR(255) NOT NULL, -- 👈 已修正：補回完整的 game_class
         line_display_name VARCHAR(255),
         allow_search VARCHAR(10) DEFAULT 'N',
         joined_line_group VARCHAR(10) DEFAULT 'N',
@@ -146,7 +146,7 @@ async function initDatabase() {
 initDatabase();
 
 // ==========================================
-// 職業名稱修改並連動更新會員表 API
+// 職業名稱修改並連動更新會員表 API (路徑改為 /api/admin/classes/rename)
 // ==========================================
 app.post('/api/admin/classes/rename', async (req, res) => {
   const { oldName, newName } = req.body;
@@ -157,24 +157,29 @@ app.post('/api/admin/classes/rename', async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    
+    const checkExist = await client.query('SELECT * FROM game_classes WHERE class_name = $1', [newName.trim()]);
+    if (checkExist.rows.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ status: "error", message: "此職業名稱已存在" });
+    }
 
-    // 1. 更新 game_classes 表中的職業名稱
+    await client.query('DELETE FROM game_classes WHERE class_name = $1', [oldName]);
     await client.query(
-      "UPDATE game_classes SET class_name = $1 WHERE class_name = $2",
-      [newName, oldName]
+      'INSERT INTO game_classes (class_name) VALUES ($1) ON CONFLICT (class_name) DO NOTHING',
+      [newName.trim()]
     );
-
-    // 2. 連帶更新所有屬於這個舊職業的會員資料
+    
     await client.query(
-      "UPDATE members SET game_class = $1 WHERE game_class = $2",
-      [newName, oldName]
+      'UPDATE members SET game_class = $1 WHERE game_class = $2',
+      [newName.trim(), oldName]
     );
-
+    
     await client.query('COMMIT');
-    res.json({ status: "success", message: "職業名稱已同步更新，相關會員資料已連動" });
+    res.json({ status: "success", message: "職業名稱已成功修改並同步更新會員資料" });
   } catch (err) {
     await client.query('ROLLBACK');
-    console.error('[Database] 更新職業名稱失敗:', err);
+    console.error('[Database] 修改職業失敗:', err);
     res.status(500).json({ status: "error", message: err.message });
   } finally {
     client.release();
