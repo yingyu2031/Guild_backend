@@ -243,11 +243,11 @@ app.delete('/api/admin/members/:uid', async (req, res) => {
   }
 });
 
-// ==========================================
+
 // 請假系統 API (新增 POST /api/leaves)
-// ==========================================
+
 app.post('/api/leaves', async (req, res) => {
-  const { leaveDate, leaveEvent, targetUid, gameNickname, gameClass, leaveReason, note, operatorUid, operatorName } = req.body;
+  const { leaveDate, leaveEvent, targetUid, gameNickname, gameClass, leaveReason, note, isUrgent, operatorUid, operatorName } = req.body;
   
   if (!leaveDate || !leaveEvent || !targetUid || !gameNickname || !leaveReason) {
     return res.status(400).json({ status: "error", message: "缺少必要的請假欄位" });
@@ -260,9 +260,10 @@ app.post('/api/leaves', async (req, res) => {
     // 若有填寫備註 (note)，可將其附加在請假原因後方或保留
     const finalReason = note ? `${leaveReason} (備註: ${note})` : leaveReason;
 
+    // 將 isUrgent 寫入資料庫的 is_urgent 欄位
     await pool.query(`
-      INSERT INTO leaves (leave_id, leave_date, leave_event, target_uid, game_nickname, game_class, leave_reason, operator_uid, operator_name, submit_time)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP)
+      INSERT INTO leaves (leave_id, leave_date, leave_event, target_uid, game_nickname, game_class, leave_reason, is_urgent, operator_uid, operator_name, submit_time)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_TIMESTAMP)
     `, [
       leaveId, 
       leaveDate, 
@@ -271,6 +272,7 @@ app.post('/api/leaves', async (req, res) => {
       gameNickname, 
       gameClass || '', 
       finalReason, 
+      isUrgent || 'N', 
       operatorUid || targetUid, 
       operatorName || '本人'
     ]);
@@ -282,6 +284,7 @@ app.post('/api/leaves', async (req, res) => {
   }
 });
 
+// 幹部讀取請假紀錄規則 API
 app.get('/api/admin/leaves', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM leaves ORDER BY submit_time DESC');
