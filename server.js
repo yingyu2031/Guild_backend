@@ -255,7 +255,7 @@ app.post('/api/leaves', async (req, res) => {
 
   try {
     // 產生唯一請假 ID (例如: LV_1711234567890_abc)
-    const leaveId = 'LV_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+    const leaveId = 'L' + Date.now() + Math.random().toString(36).substring(2, 7);
     
     // 若有填寫備註 (note)，可將其附加在請假原因後方或保留
     const finalReason = note ? `${leaveReason} (備註: ${note})` : leaveReason;
@@ -280,6 +280,29 @@ app.post('/api/leaves', async (req, res) => {
     res.json({ status: "success", message: "請假申請已成功送出並記錄", leaveId });
   } catch (err) {
     console.error('[Database] 請假寫入失敗:', err);
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
+// 檢查特定日期與活動是否已有請假紀錄
+app.get('/api/leaves/check', async (req, res) => {
+  const { targetUid, leaveDate, leaveEvent } = req.query;
+  if (!targetUid || !leaveDate || !leaveEvent) {
+    return res.status(400).json({ status: "error", message: "缺少必要查詢參數" });
+  }
+
+  try {
+    const result = await pool.query(
+      'SELECT * FROM leaves WHERE target_uid = $1 AND leave_date = $2 AND leave_event = $3',
+      [targetUid, leaveDate, leaveEvent]
+    );
+    
+    if (result.rows.length > 0) {
+      res.json({ status: "exists", message: "該成員同天已請過此活動" });
+    } else {
+      res.json({ status: "available", message: "可正常請假" });
+    }
+  } catch (err) {
     res.status(500).json({ status: "error", message: err.message });
   }
 });
