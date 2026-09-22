@@ -146,8 +146,36 @@ async function initDatabase() {
 initDatabase();
 
 // ==========================================
-// 職業名稱修改並連動更新會員表 API (路徑改為 /api/admin/classes/rename)
+// 遊戲職業管理 API 
 // ==========================================
+
+// 1. 取得所有職業清單
+app.get('/api/admin/classes', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT class_name FROM game_classes ORDER BY sort_order ASC, create_time ASC');
+    res.json({ status: "success", classes: result.rows.map(r => r.class_name) });
+  } catch (err) {
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
+// 2. 新增職業
+app.post('/api/admin/classes/add', async (req, res) => {
+  const { className } = req.body;
+  if (!className) return res.status(400).json({ status: "error", message: "缺少職業名稱" });
+  
+  try {
+    await pool.query(
+      'INSERT INTO game_classes (class_name) VALUES ($1) ON CONFLICT (class_name) DO NOTHING',
+      [className.trim()]
+    );
+    res.json({ status: "success", message: "職業新增成功" });
+  } catch (err) {
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
+// 3. 修改職業名稱（連帶更新所有綁定該職業的會員資料）
 app.post('/api/admin/classes/rename', async (req, res) => {
   const { oldName, newName } = req.body;
   if (!oldName || !newName) {
@@ -185,6 +213,20 @@ app.post('/api/admin/classes/rename', async (req, res) => {
     client.release();
   }
 });
+
+// 4. 刪除職業 (對應前端呼叫的 /api/admin/classes/delete)
+app.post('/api/admin/classes/delete', async (req, res) => {
+  const { className } = req.body;
+  if (!className) return res.status(400).json({ status: "error", message: "缺少職業名稱" });
+
+  try {
+    await pool.query('DELETE FROM game_classes WHERE class_name = $1', [className]);
+    res.json({ status: "success", message: "刪除職業成功" });
+  } catch (err) {
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
 
 app.get('/', (req, res) => { res.json({ status: 'success', message: 'GuildMaster 後台服務運作中！' }); });
 app.get('/api/health', (req, res) => { res.json({ status: 'success', message: 'GuildMaster PostgreSQL 後台運行中！' }); });
