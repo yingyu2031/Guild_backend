@@ -107,15 +107,20 @@ async function initDatabase() {
         config_key VARCHAR(255) PRIMARY KEY,
         config_value TEXT
       );
+
+      CREATE TABLE IF NOT EXISTS game_classes (
+        class_name VARCHAR(255) PRIMARY KEY,
+        sort_order INT DEFAULT 0,
+        create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
     `);
-    console.log('[Database] 資料庫與所有擴充表初始化完畢！');
+    console.log('[Database] 資料庫與所有擴充表（含職業表）初始化完畢！');
   } catch (err) {
     console.error('[Database] 建表失敗:', err);
   } finally {
     client.release();
   }
 }
-
 initDatabase();
 
 app.get('/', (req, res) => { res.json({ status: 'success', message: 'GuildMaster 後台服務運作中！' }); });
