@@ -247,7 +247,10 @@ app.get('/api/members/:uid', async (req, res) => {
         joinedLineGroup: member.joined_line_group || 'N',
         joinedDc: member.joined_dc || 'N',
         guildRole: member.guild_role,
-        accountStatus: member.account_status
+        accountStatus: member.account_status,
+        // 額外加上這兩行讓前端絕對不會抓錯：
+        account_status: member.account_status,
+        guild_role: member.guild_role
       });
     } else {
       res.json({ status: "not_found" });
