@@ -433,6 +433,7 @@ app.get('/api/admin/leaves', async (req, res) => {
       reason: l.leave_reason,
       isUrgent: l.is_urgent === 'Y',
       operator: l.operator_name || '本人',
+      operator_name: l.operator_name || '本人', // 👈 多加這行，確保前端用 operator_name 也能抓到
       submitTime: l.submit_time
     }));
     res.json({ status: "success", leaves });
@@ -440,6 +441,7 @@ app.get('/api/admin/leaves', async (req, res) => {
     res.status(500).json({ status: "error", message: err.message });
   }
 });
+
 
 // 儲存或更新請假項目規則 API
 app.post('/api/admin/leave-rules/save', async (req, res) => {
