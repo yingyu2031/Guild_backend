@@ -377,6 +377,41 @@ app.get('/api/members/search', async (req, res) => {
   }
 });
 
+// 會員公開關鍵字搜尋 API (針對資料庫進行模糊搜尋，不一次載入全部)
+app.get('/api/members/search', async (req, res) => {
+  const keyword = (req.query.q || '').trim();
+  if (!keyword) {
+    return res.json({ status: "success", data: [] });
+  }
+
+  try {
+    // 使用 ILike (不分大小寫) 進行模糊搜尋，且限制必須是「已審核」且「開放查詢」的成員
+    const query = `
+      SELECT * FROM members 
+      WHERE account_status = '已審核' 
+        AND allow_search = 'Y' 
+        AND (game_nickname ILIKE $1 OR line_display_name ILIKE $1)
+      ORDER BY update_time DESC 
+      LIMIT 20
+    `;
+    const result = await pool.query(query, [`%${keyword}%`]);
+    
+    const members = result.rows.map(m => ({
+      lineUserId: m.line_user_id,
+      gameNickname: m.game_nickname,
+      gameClass: m.game_class,
+      lineDisplayName: m.line_display_name,
+      allowSearch: m.allow_search,
+      accountStatus: m.account_status
+    }));
+
+    res.json({ status: "success", data: members });
+  } catch (err) {
+    console.error('[Database] 搜尋會員失敗:', err);
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
 
 // 請假系統 API (新增 POST /api/leaves)
 
