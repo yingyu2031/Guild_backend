@@ -356,6 +356,27 @@ app.delete('/api/admin/members/:uid', async (req, res) => {
   }
 });
 
+// 公開會員名冊查詢 API
+app.get('/api/members/search', async (req, res) => {
+  try {
+    // 預設只抓取 allow_search = 'Y' 且帳號狀態為 '已審核' 的成員（保護隱私）
+    const result = await pool.query(
+      "SELECT * FROM members WHERE account_status = '已審核' AND allow_search = 'Y' ORDER BY update_time DESC"
+    );
+    const members = result.rows.map(m => ({
+      lineUserId: m.line_user_id,
+      gameNickname: m.game_nickname,
+      gameClass: m.game_class,
+      lineDisplayName: m.line_display_name,
+      allowSearch: m.allow_search,
+      accountStatus: m.account_status
+    }));
+    res.json({ status: "success", data: members });
+  } catch (err) {
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
 
 // 請假系統 API (新增 POST /api/leaves)
 
