@@ -148,6 +148,44 @@ initDatabase();
 app.get('/', (req, res) => { res.json({ status: 'success', message: 'GuildMaster 後台服務運作中！' }); });
 app.get('/api/health', (req, res) => { res.json({ status: 'success', message: 'GuildMaster PostgreSQL 後台運行中！' }); });
 
+
+// ==========================================
+// 1. 記得把搜尋 API 放在最前面（避免被 :uid 攔截）
+// ==========================================
+app.get('/api/members/search', async (req, res) => {
+  const keyword = (req.query.q || '').trim();
+  if (!keyword) {
+    return res.json({ status: "success", data: [] });
+  }
+
+  try {
+    const query = `
+      SELECT * FROM members 
+      WHERE account_status = '已審核' 
+        AND allow_search = 'Y' 
+        AND (game_nickname ILIKE $1 OR line_display_name ILIKE $1)
+      ORDER BY update_time DESC 
+      LIMIT 20
+    `;
+    const result = await pool.query(query, [`%${keyword}%`]);
+    
+    const members = result.rows.map(m => ({
+      lineUserId: m.line_user_id,
+      gameNickname: m.game_nickname,
+      gameClass: m.game_class,
+      lineDisplayName: m.line_display_name,
+      allowSearch: m.allow_search,
+      accountStatus: m.account_status
+    }));
+
+    res.json({ status: "success", data: members });
+  } catch (err) {
+    console.error('[Database] 搜尋會員失敗:', err);
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
+
 // 會員相關 API
 app.get('/api/members/:uid', async (req, res) => {
   const lineUserId = req.params.uid;
@@ -272,72 +310,6 @@ app.delete('/api/admin/members/:uid', async (req, res) => {
     res.status(500).json({ status: "error", message: err.message });
   }
 });
-
-
-// ==========================================
-// 1. 記得把搜尋 API 放在最前面（避免被 :uid 攔截）
-// ==========================================
-app.get('/api/members/search', async (req, res) => {
-  const keyword = (req.query.q || '').trim();
-  if (!keyword) {
-    return res.json({ status: "success", data: [] });
-  }
-
-  try {
-    const query = `
-      SELECT * FROM members 
-      WHERE account_status = '已審核' 
-        AND allow_search = 'Y' 
-        AND (game_nickname ILIKE $1 OR line_display_name ILIKE $1)
-      ORDER BY update_time DESC 
-      LIMIT 20
-    `;
-    const result = await pool.query(query, [`%${keyword}%`]);
-    
-    const members = result.rows.map(m => ({
-      lineUserId: m.line_user_id,
-      gameNickname: m.game_nickname,
-      gameClass: m.game_class,
-      lineDisplayName: m.line_display_name,
-      allowSearch: m.allow_search,
-      accountStatus: m.account_status
-    }));
-
-    res.json({ status: "success", data: members });
-  } catch (err) {
-    console.error('[Database] 搜尋會員失敗:', err);
-    res.status(500).json({ status: "error", message: err.message });
-  }
-});
-
-// ==========================================
-// 2. 單一會員查詢 API 放後面
-// ==========================================
-app.get('/api/members/:uid', async (req, res) => {
-  const lineUserId = req.params.uid;
-  try {
-    const result = await pool.query('SELECT * FROM members WHERE line_user_id = $1', [lineUserId]);
-    if (result.rows.length > 0) {
-      const member = result.rows[0];
-      res.json({
-        status: "found",
-        gameNickname: member.game_nickname,
-        gameClass: member.game_class,
-        lineDisplayName: member.line_display_name,
-        allowSearch: member.allow_search || 'N',
-        joinedLineGroup: member.joined_line_group || 'N',
-        joinedDc: member.joined_dc || 'N',
-        guildRole: member.guild_role,
-        accountStatus: member.account_status
-      });
-    } else {
-      res.json({ status: "not_found" });
-    }
-  } catch (err) {
-    res.status(500).json({ status: "error", message: err.message });
-  }
-});
-
 
 // 請假系統 API (新增 POST /api/leaves)
 
