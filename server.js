@@ -510,14 +510,14 @@ app.post('/api/admin/events/save', async (req, res) => {
   const { id, title, date, time, signupStart, signupEnd, maxLimit, status, desc, isArchived } = req.body;
   try {
     await pool.query(`
-      INSERT INTO events (id, title, date, time, signup_start, signup_end, max_limit, status, description, is_archived)
+      INSERT INTO events (event_id, title, date, time, signup_start, signup_end, max_limit, status, description, is_archived)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      ON CONFLICT (id) 
+      ON CONFLICT (event_id) 
       DO UPDATE SET title = EXCLUDED.title, date = EXCLUDED.date, time = EXCLUDED.time, 
                     signup_start = EXCLUDED.signup_start, signup_end = EXCLUDED.signup_end, 
                     max_limit = EXCLUDED.max_limit, status = EXCLUDED.status, 
                     description = EXCLUDED.description, is_archived = EXCLUDED.is_archived
-    `, [id, title, date, time, signupStart, signupEnd, maxLimit, status, desc, isArchived]);
+    `, [id, title, date, time, signupStart, signupEnd, maxLimit, status, desc, isArchived ? 1 : 0]);
 
     res.json({ status: "success" });
   } catch (err) {
