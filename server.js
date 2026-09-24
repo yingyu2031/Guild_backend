@@ -335,6 +335,9 @@ app.post('/api/leaves', async (req, res) => {
     // 若有填寫備註 (note)，可將其附加在請假原因後方或保留
     const finalReason = note ? `${leaveReason} (備註: ${note})` : leaveReason;
 
+    // 💡 取得精準的台灣時間 (UTC+8)
+    const nowTaipei = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Taipei" }));
+
     // 將 isUrgent 寫入資料庫的 is_urgent 欄位
     await pool.query(`
       INSERT INTO leaves (leave_id, leave_date, leave_event, target_uid, game_nickname, game_class, leave_reason, is_urgent, operator_uid, operator_name, submit_time)
@@ -349,7 +352,8 @@ app.post('/api/leaves', async (req, res) => {
       finalReason, 
       isUrgent || 'N', 
       operatorUid || targetUid, 
-      operatorName || '本人'
+      operatorName || '本人',
+      nowTaipei //
     ]);
 
     res.json({ status: "success", message: "請假申請已成功送出並記錄", leaveId });
