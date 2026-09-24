@@ -508,34 +508,31 @@ app.post('/api/admin/classes/add', async (req, res) => {
 });
 
 // 3. 修改職業名稱（連帶更新所有綁定該職業的會員資料）
-app.post('/api/admin/classes/update', async (req, res) => {
-  const { oldClassName, newClassName } = req.body;
-  if (!oldClassName || !newClassName) {
-    return res.status(400).json({ status: "error", message: "缺少必要參數" });
+app.post('/api/admin/classes/rename', async (req, res) => {
+  const { oldName, newName } = req.body;
+  if (!oldName || !newName) {
+    return res.status(400).json({ status: "error", message: "缺少必要欄位" });
   }
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     
-    // 檢查新名稱是否已存在
-    const checkExist = await client.query('SELECT * FROM game_classes WHERE class_name = $1', [newClassName.trim()]);
+    const checkExist = await client.query('SELECT * FROM game_classes WHERE class_name = $1', [newName.trim()]);
     if (checkExist.rows.length > 0) {
       await client.query('ROLLBACK');
-    return res.status(400).json({ status: "error", message: "此職業名稱已存在" });
+      return res.status(400).json({ status: "error", message: "此職業名稱已存在" });
     }
 
-    // 1. 更新職業表中的名稱（若有使用舊名稱，先刪除舊的再插入新的，或直接 UPDATE 主鍵）
-    await client.query('DELETE FROM game_classes WHERE class_name = $1', [oldClassName]);
+    await client.query('DELETE FROM game_classes WHERE class_name = $1', [oldName]);
     await client.query(
       'INSERT INTO game_classes (class_name) VALUES ($1) ON CONFLICT (class_name) DO NOTHING',
-      [newClassName.trim()]
+      [newName.trim()]
     );
     
-    // 2. 連帶更新所有屬於這個舊職業的會員資料
     await client.query(
       'UPDATE members SET game_class = $1 WHERE game_class = $2',
-      [newClassName.trim(), oldClassName]
+      [newName.trim(), oldName]
     );
     
     await client.query('COMMIT');
@@ -549,16 +546,19 @@ app.post('/api/admin/classes/update', async (req, res) => {
   }
 });
 
-// 4. 刪除職業
-app.delete('/api/admin/classes/:className', async (req, res) => {
-  const className = req.params.className;
+// 4. 刪除職業 (對應前端呼叫的 /api/admin/classes/delete)
+app.post('/api/admin/classes/delete', async (req, res) => {
+  const { className } = req.body;
+  if (!className) return res.status(400).json({ status: "error", message: "缺少職業名稱" });
+
   try {
     await pool.query('DELETE FROM game_classes WHERE class_name = $1', [className]);
-    res.json({ status: "success", message: "職業已刪除" });
+    res.json({ status: "success", message: "刪除職業成功" });
   } catch (err) {
     res.status(500).json({ status: "error", message: err.message });
   }
 });
+
 
 // 請假項目規則 API
 app.get('/api/admin/leave-rules', async (req, res) => {
