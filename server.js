@@ -1,3 +1,10 @@
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  // 可以在這裡確保連線使用台北時區
+  options: '-c timezone=Asia/Taipei'
+});
+
 const express = require('express');
 const { Pool } = require('pg');
 const path = require('path');
