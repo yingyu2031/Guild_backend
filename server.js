@@ -441,6 +441,37 @@ app.delete('/api/admin/leave-rules/:event', async (req, res) => {
 // ==========================================
 // 活動列表 API
 // ==========================================
+// 1. 報名活動 API (POST)
+app.post('/api/events/signup', async (req, res) => {
+  const { eventId, lineUserId, gameNickname, gameClass } = req.body;
+  try {
+    // 這裡根據您的資料庫結構進行寫入（例如將報名資料存入 event_attendees 表格或 JSON 欄位）
+    // 範例：
+    await pool.query(`
+      INSERT INTO event_attendees (event_id, line_user_id, game_nickname, game_class, signup_time)
+      VALUES ($1, $2, $3, $4, NOW())
+      ON CONFLICT (event_id, line_user_id) DO NOTHING
+    `, [eventId, lineUserId, gameNickname, gameClass]);
+    
+    res.json({ status: "success" });
+  } catch (err) {
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
+// 2. 取消報名 API (DELETE)
+app.delete('/api/events/signup', async (req, res) => {
+  const { eventId, lineUserId } = req.body;
+  try {
+    await pool.query(`
+      DELETE FROM event_attendees WHERE event_id = $1 AND line_user_id = $2
+    `, [eventId, lineUserId]);
+    
+    res.json({ status: "success" });
+  } catch (err) {
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
 
 app.get('/api/admin/events', async (req, res) => {
   try {
