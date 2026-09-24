@@ -274,7 +274,9 @@ app.delete('/api/admin/members/:uid', async (req, res) => {
 });
 
 
-// 會員公開關鍵字搜尋 API (針對資料庫進行模糊搜尋，不一次載入全部)
+// ==========================================
+// 1. 記得把搜尋 API 放在最前面（避免被 :uid 攔截）
+// ==========================================
 app.get('/api/members/search', async (req, res) => {
   const keyword = (req.query.q || '').trim();
   if (!keyword) {
@@ -282,7 +284,6 @@ app.get('/api/members/search', async (req, res) => {
   }
 
   try {
-    // 使用 ILike (不分大小寫) 進行模糊搜尋，且限制必須是「已審核」且「開放查詢」的成員
     const query = `
       SELECT * FROM members 
       WHERE account_status = '已審核' 
@@ -305,6 +306,34 @@ app.get('/api/members/search', async (req, res) => {
     res.json({ status: "success", data: members });
   } catch (err) {
     console.error('[Database] 搜尋會員失敗:', err);
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
+// ==========================================
+// 2. 單一會員查詢 API 放後面
+// ==========================================
+app.get('/api/members/:uid', async (req, res) => {
+  const lineUserId = req.params.uid;
+  try {
+    const result = await pool.query('SELECT * FROM members WHERE line_user_id = $1', [lineUserId]);
+    if (result.rows.length > 0) {
+      const member = result.rows[0];
+      res.json({
+        status: "found",
+        gameNickname: member.game_nickname,
+        gameClass: member.game_class,
+        lineDisplayName: member.line_display_name,
+        allowSearch: member.allow_search || 'N',
+        joinedLineGroup: member.joined_line_group || 'N',
+        joinedDc: member.joined_dc || 'N',
+        guildRole: member.guild_role,
+        accountStatus: member.account_status
+      });
+    } else {
+      res.json({ status: "not_found" });
+    }
+  } catch (err) {
     res.status(500).json({ status: "error", message: err.message });
   }
 });
