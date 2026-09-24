@@ -175,7 +175,8 @@ app.get('/api/members/search', async (req, res) => {
       gameClass: m.game_class,
       lineDisplayName: m.line_display_name,
       allowSearch: m.allow_search,
-      accountStatus: m.account_status
+      accountStatus: m.account_status,
+      guildRole: m.guild_role
     }));
 
     res.json({ status: "success", data: members });
