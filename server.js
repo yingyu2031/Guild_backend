@@ -151,7 +151,7 @@ app.get('/api/health', (req, res) => { res.json({ status: 'success', message: 'G
 
 
 // ==========================================
-// 1. 記得把搜尋 API 放在最前面（避免被 :uid 攔截）
+// 公開查詢 API 放在最前面（避免被 :uid 攔截）
 // ==========================================
 app.get('/api/members/search', async (req, res) => {
   const keyword = (req.query.q || '').trim();
@@ -188,7 +188,10 @@ app.get('/api/members/search', async (req, res) => {
 });
 
 
+// ==========================================
 // 會員相關 API
+// ==========================================
+
 app.get('/api/members/:uid', async (req, res) => {
   const lineUserId = req.params.uid;
   try {
@@ -313,7 +316,9 @@ app.delete('/api/admin/members/:uid', async (req, res) => {
   }
 });
 
-// 請假系統 API (新增 POST /api/leaves)
+// ==========================================
+// 請假表單 API
+// ==========================================
 
 app.post('/api/leaves', async (req, res) => {
   const { leaveDate, leaveEvent, targetUid, gameNickname, gameClass, leaveReason, note, isUrgent, operatorUid, operatorName } = req.body;
@@ -433,7 +438,10 @@ app.delete('/api/admin/leave-rules/:event', async (req, res) => {
   }
 });
 
+// ==========================================
 // 活動列表 API
+// ==========================================
+
 app.get('/api/admin/events', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM events ORDER BY date DESC');
@@ -456,31 +464,62 @@ app.get('/api/admin/events', async (req, res) => {
   }
 });
 
-// 其他設定：系統參數 (群組 ID、職業選單) API
-app.get('/api/admin/configs', async (req, res) => {
-  try {
-    const result = await pool.query('SELECT * FROM system_configs');
-    const configs = {};
-    result.rows.forEach(r => { configs[r.config_key] = r.config_value; });
-    res.json({ status: "success", configs });
-  } catch (err) {
-    res.status(500).json({ status: "error", message: err.message });
-  }
-});
+// ==========================================
+// 推播群駔設定 API 
+// ==========================================
+// 1. 從後端資料庫載入群組設定
+async function loadGroupSettings() {
+    try {
+        const response = await fetch(`${BACKEND_API_URL}/api/admin/configs`, {
+            method: 'GET',
+            headers: { 'Accept': 'application/json' }
+        });
+        const result = await response.json();
+        
+        if (result.status === "success" && result.configs) {
+            // 對應資料庫中的 config_key
+            if (result.configs.guild_group_id) {
+                document.getElementById('guildGroupIdInput').value = result.configs.guild_group_id;
+            }
+            if (result.configs.admin_group_id) {
+                document.getElementById('adminGroupIdInput').value = result.configs.admin_group_id;
+            }
+        }
+    } catch (err) {
+        console.error("載入群組設定失敗:", err);
+    }
+}
 
-app.post('/api/admin/configs', async (req, res) => {
-  const { configKey, configValue } = req.body;
-  try {
-    await pool.query(`
-      INSERT INTO system_configs (config_key, config_value) VALUES ($1, $2)
-      ON CONFLICT (config_key) DO UPDATE SET config_value = EXCLUDED.config_value
-    `, [configKey, configValue]);
-    res.json({ status: "success" });
-  } catch (err) {
-    res.status(500).json({ status: "error", message: err.message });
-  }
-});
+// 2. 儲存群組設定至後端資料庫
+async function saveGroupSettings() {
+    const guild_group_id = document.getElementById('guildGroupIdInput').value.trim();
+    const admin_group_id = document.getElementById('adminGroupIdInput').value.trim();
+    const saveMsg = document.getElementById('groupIdSaveMsg');
 
+    try {
+        const response = await fetch(`${BACKEND_API_URL}/api/admin/configs`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                guild_group_id: guild_group_id,
+                admin_group_id: admin_group_id
+            })
+        });
+
+        const result = await response.json();
+        if (result.status === "success") {
+            saveMsg.classList.remove('hidden');
+            setTimeout(() => {
+                saveMsg.classList.add('hidden');
+            }, 2000);
+        } else {
+            alert("儲存失敗: " + result.message);
+        }
+    } catch (err) {
+        console.error("儲存發生錯誤:", err);
+        alert("網路連線異常，儲存失敗");
+    }
+}
 // ==========================================
 // 遊戲職業管理 API 
 // ==========================================
