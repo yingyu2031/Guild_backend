@@ -494,20 +494,24 @@ app.get('/api/admin/events', async (req, res) => {
 // 2. 進行報名 API (POST)
 app.post('/api/events/signup', async (req, res) => {
   const { eventId, lineUserId, gameNickname, gameClass } = req.body;
-  const signupTime = new Date().toISOString().replace('T', ' ').substring(0, 16);
+  // 取得當前格式化時間字串
+  const now = new Date();
+  const signupTime = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
   
   try {
     await pool.query(`
       INSERT INTO event_attendees (event_id, line_user_id, game_nickname, game_class, signup_time)
       VALUES ($1, $2, $3, $4, $5)
-      ON CONFLICT (event_id, line_user_id) DO NOTHING
-    `, [eventId, lineUserId, gameNickname, gameClass]);
+      ON CONFLICT (event_id, line_user_id) DO UPDATE 
+      SET signup_time = EXCLUDED.signup_time
+    `, [eventId, lineUserId, gameNickname, gameClass, signupTime]);
     
     res.json({ status: "success" });
   } catch (err) {
     res.status(500).json({ status: "error", message: err.message });
   }
 });
+
 
 // 3. 取消報名 API (DELETE)
 app.delete('/api/events/signup', async (req, res) => {
@@ -522,6 +526,7 @@ app.delete('/api/events/signup', async (req, res) => {
     res.status(500).json({ status: "error", message: err.message });
   }
 });
+
 
 // 1. 取得所有活動 API (GET)
 app.get('/api/admin/events', async (req, res) => {
