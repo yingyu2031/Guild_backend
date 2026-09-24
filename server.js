@@ -467,59 +467,50 @@ app.get('/api/admin/events', async (req, res) => {
 // ==========================================
 // 推播群駔設定 API 
 // ==========================================
-// 1. 從後端資料庫載入群組設定
-async function loadGroupSettings() {
-    try {
-        const response = await fetch(`${BACKEND_API_URL}/api/admin/configs`, {
-            method: 'GET',
-            headers: { 'Accept': 'application/json' }
-        });
-        const result = await response.json();
-        
-        if (result.status === "success" && result.configs) {
-            // 對應資料庫中的 config_key
-            if (result.configs.guild_group_id) {
-                document.getElementById('guildGroupIdInput').value = result.configs.guild_group_id;
-            }
-            if (result.configs.admin_group_id) {
-                document.getElementById('adminGroupIdInput').value = result.configs.admin_group_id;
-            }
-        }
-    } catch (err) {
-        console.error("載入群組設定失敗:", err);
+// 取得系統設定參數 API
+app.get('/api/admin/configs', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM system_configs');
+    const configs = {};
+    result.rows.forEach(r => { 
+      configs[r.config_key] = r.config_value; 
+    });
+    res.json({ status: "success", configs });
+  } catch (err) {
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
+// 儲存 LINE 群組 ID 設定 API
+app.post('/api/admin/configs', async (req, res) => {
+  const { guild_group_id, admin_group_id } = req.body;
+  
+  try {
+    if (guild_group_id !== undefined) {
+      await pool.query(`
+        INSERT INTO system_configs (config_key, config_value) 
+        VALUES ('guild_group_id', $1)
+        ON CONFLICT (config_key) 
+        DO UPDATE SET config_value = EXCLUDED.config_value
+      `, [guild_group_id]);
     }
-}
 
-// 2. 儲存群組設定至後端資料庫
-async function saveGroupSettings() {
-    const guild_group_id = document.getElementById('guildGroupIdInput').value.trim();
-    const admin_group_id = document.getElementById('adminGroupIdInput').value.trim();
-    const saveMsg = document.getElementById('groupIdSaveMsg');
-
-    try {
-        const response = await fetch(`${BACKEND_API_URL}/api/admin/configs`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                guild_group_id: guild_group_id,
-                admin_group_id: admin_group_id
-            })
-        });
-
-        const result = await response.json();
-        if (result.status === "success") {
-            saveMsg.classList.remove('hidden');
-            setTimeout(() => {
-                saveMsg.classList.add('hidden');
-            }, 2000);
-        } else {
-            alert("儲存失敗: " + result.message);
-        }
-    } catch (err) {
-        console.error("儲存發生錯誤:", err);
-        alert("網路連線異常，儲存失敗");
+    if (admin_group_id !== undefined) {
+      await pool.query(`
+        INSERT INTO system_configs (config_key, config_value) 
+        VALUES ('admin_group_id', $1)
+        ON CONFLICT (config_key) 
+        DO UPDATE SET config_value = EXCLUDED.config_value
+      `, [admin_group_id]);
     }
-}
+
+    res.json({ status: "success", message: "群組 ID 設定已成功儲存" });
+  } catch (err) {
+    console.error('[Database] 儲存群組 ID 失敗:', err);
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
 // ==========================================
 // 遊戲職業管理 API 
 // ==========================================
