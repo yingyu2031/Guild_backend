@@ -96,6 +96,18 @@ async function initDatabase() {
         description TEXT,
         create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+      
+        CREATE TABLE IF NOT EXISTS event_attendees (
+        id SERIAL PRIMARY KEY,
+        event_id VARCHAR(255) NOT NULL,
+        line_user_id VARCHAR(255) NOT NULL,
+        game_nickname VARCHAR(255) NOT NULL,
+        game_class VARCHAR(255) NOT NULL,
+        signup_time VARCHAR(50) NOT NULL,
+        CONSTRAINT unique_event_user UNIQUE (event_id, line_user_id)
+     );
+
+
 
       CREATE TABLE IF NOT EXISTS broadcast_schedules (
         broadcast_id VARCHAR(255) PRIMARY KEY,
@@ -441,15 +453,53 @@ app.delete('/api/admin/leave-rules/:event', async (req, res) => {
 // ==========================================
 // 活動列表 API
 // ==========================================
-// 1. 報名活動 API (POST)
+// 1. 取得所有活動與報名名單 API (GET)
+app.get('/api/admin/events', async (req, res) => {
+  try {
+    const eventsResult = await pool.query('SELECT * FROM events ORDER BY date ASC');
+    const attendeesResult = await pool.query('SELECT * FROM event_attendees');
+    
+    // 將報名名單對應組合進對應的活動物件中
+    const events = eventsResult.rows.map(evt => {
+      const attendees = attendeesResult.rows
+        .filter(a => a.event_id === evt.event_id)
+        .map(a => ({
+          lineUserId: a.line_user_id,
+          gameNickname: a.game_nickname,
+          gameClass: a.game_class,
+          signupTime: a.signup_time
+        }));
+
+      return {
+        id: evt.event_id,
+        title: evt.title,
+        date: evt.date,
+        time: evt.time,
+        signupStart: evt.signup_start,
+        signupEnd: evt.signup_end,
+        maxLimit: evt.max_limit,
+        status: evt.status,
+        isArchived: evt.is_archived === 1,
+        desc: evt.description,
+        attendees: attendees
+      };
+    });
+
+    res.json({ status: "success", events });
+  } catch (err) {
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
+// 2. 進行報名 API (POST)
 app.post('/api/events/signup', async (req, res) => {
   const { eventId, lineUserId, gameNickname, gameClass } = req.body;
+  const signupTime = new Date().toISOString().replace('T', ' ').substring(0, 16);
+  
   try {
-    // 這裡根據您的資料庫結構進行寫入（例如將報名資料存入 event_attendees 表格或 JSON 欄位）
-    // 範例：
     await pool.query(`
       INSERT INTO event_attendees (event_id, line_user_id, game_nickname, game_class, signup_time)
-      VALUES ($1, $2, $3, $4, NOW())
+      VALUES ($1, $2, $3, $4, $5)
       ON CONFLICT (event_id, line_user_id) DO NOTHING
     `, [eventId, lineUserId, gameNickname, gameClass]);
     
@@ -459,7 +509,7 @@ app.post('/api/events/signup', async (req, res) => {
   }
 });
 
-// 2. 取消報名 API (DELETE)
+// 3. 取消報名 API (DELETE)
 app.delete('/api/events/signup', async (req, res) => {
   const { eventId, lineUserId } = req.body;
   try {
@@ -473,27 +523,6 @@ app.delete('/api/events/signup', async (req, res) => {
   }
 });
 
-app.get('/api/admin/events', async (req, res) => {
-  try {
-    const result = await pool.query('SELECT * FROM events ORDER BY date DESC');
-    const events = result.rows.map(e => ({
-      id: e.event_id,
-      title: e.title,
-      date: e.date,
-      time: e.time,
-      signupStart: e.signup_start,
-      signupEnd: e.signup_end,
-      maxLimit: e.max_limit,
-      status: e.status,
-      isArchived: e.is_archived === 1,
-      desc: e.description,
-      attendees: []
-    }));
-    res.json({ status: "success", events });
-  } catch (err) {
-    res.status(500).json({ status: "error", message: err.message });
-  }
-});
 // 1. 取得所有活動 API (GET)
 app.get('/api/admin/events', async (req, res) => {
   try {
