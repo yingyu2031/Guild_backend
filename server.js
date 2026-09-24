@@ -494,6 +494,47 @@ app.get('/api/admin/events', async (req, res) => {
     res.status(500).json({ status: "error", message: err.message });
   }
 });
+// 1. 取得所有活動 API (GET)
+app.get('/api/admin/events', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM events ORDER BY date ASC');
+    // 若 attendees 儲存在關聯表格中，可透過 JOIN 讀取並組裝
+    res.json({ status: "success", events: result.rows });
+  } catch (err) {
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
+// 2. 建立或更新活動 API (POST)
+app.post('/api/admin/events/save', async (req, res) => {
+  const { id, title, date, time, signupStart, signupEnd, maxLimit, status, desc, isArchived } = req.body;
+  try {
+    await pool.query(`
+      INSERT INTO events (id, title, date, time, signup_start, signup_end, max_limit, status, description, is_archived)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      ON CONFLICT (id) 
+      DO UPDATE SET title = EXCLUDED.title, date = EXCLUDED.date, time = EXCLUDED.time, 
+                    signup_start = EXCLUDED.signup_start, signup_end = EXCLUDED.signup_end, 
+                    max_limit = EXCLUDED.max_limit, status = EXCLUDED.status, 
+                    description = EXCLUDED.description, is_archived = EXCLUDED.is_archived
+    `, [id, title, date, time, signupStart, signupEnd, maxLimit, status, desc, isArchived]);
+
+    res.json({ status: "success" });
+  } catch (err) {
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
+// 3. 刪除活動 API (DELETE)
+app.delete('/api/admin/events/:id', async (req, res) => {
+  const eventId = req.params.id;
+  try {
+    await pool.query('DELETE FROM events WHERE id = $1', [eventId]);
+    res.json({ status: "success" });
+  } catch (err) {
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
 
 // ==========================================
 // 推播群駔設定 API 
